@@ -104,12 +104,21 @@ def load_model(
     import_python_files(official_repo / "models")
 
     import paddle
-    from paddleseg.cvlibs import Config, SegBuilder
+
+    try:
+        from paddleseg.cvlibs import Config
+    except ImportError:
+        from paddleseg.cvlibs.config import Config
 
     paddle.set_device(device)
     cfg = Config(str(config_path))
-    builder = SegBuilder(cfg)
-    model = builder.model
+    try:
+        from paddleseg.cvlibs import SegBuilder
+
+        model = SegBuilder(cfg).model
+    except ImportError:
+        # PaddleSeg 2.7 builds configured models directly through Config.model.
+        model = cfg.model
 
     try:
         from paddleseg.utils import utils

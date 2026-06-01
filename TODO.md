@@ -8,15 +8,11 @@
   - 官方仓库：https://github.com/CHDyshli/HrSegNet4CrackSegmentation
   - 建议放在 `third_party/HrSegNet4CrackSegmentation/`，本项目自己的推理、训练适配代码放在 `scripts/`。
   - 本地网络暂时无法完成 GitHub clone；服务器上优先执行 `bash scripts/bootstrap_third_party.sh`。
-- [ ] 在 RTX 4090 服务器上准备运行环境。
-  - 首轮建议使用 conda：Python 3.8、PaddlePaddle GPU、PaddleSeg 2.7.0、OpenCV。
-  - 环境建好后记录 CUDA、cuDNN、Paddle、PaddleSeg 版本。
-- [ ] 下载官方预训练权重。
-  - 先用 HrSegNet-B48 看最佳初始效果。
-  - 同时保留 HrSegNet-B32 做速度/效果对比。
-  - 权重放在 `weights/`，不进入 Git。
 - [ ] 在服务器上验证 `scripts/infer_folder.py` 与官方 PaddleSeg 配置/权重兼容。
+  - 2026-06-01：首次 B48 推理卡在 PaddleSeg `SegBuilder` 导入兼容问题，已修复脚本，待服务器重跑确认。
 - [ ] 在服务器上用预训练模型跑当前数据。
+  - 先跑 HrSegNet-B48。
+  - 再跑 HrSegNet-B32 做对比。
 - [ ] 将服务器输出同步回本地并检查可视化效果。
 - [ ] 根据初步效果决定是否微调。
 - [ ] 如需微调，制定标注方案。
