@@ -1,0 +1,35 @@
+# Data and artifacts
+data/
+weights/
+outputs/
+runs/
+checkpoints/
+logs/
+
+# Model files
+*.pdparams
+*.pdopt
+*.pdmodel
+*.onnx
+*.engine
+*.trt
+*.pth
+*.pt
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# System/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Temporary files
+*.tmp
+*.log
