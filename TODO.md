@@ -4,13 +4,9 @@
 
 ## Active
 
-- [ ] 接入官方 HrSegNet 实现。
-  - 官方仓库：https://github.com/CHDyshli/HrSegNet4CrackSegmentation
-  - 建议放在 `third_party/HrSegNet4CrackSegmentation/`，本项目自己的推理、训练适配代码放在 `scripts/`。
-  - 本地网络暂时无法完成 GitHub clone；服务器上优先执行 `bash scripts/bootstrap_third_party.sh`。
-- [ ] 在服务器上验证 `scripts/infer_folder.py` 与官方 PaddleSeg 配置/权重兼容。
-  - 2026-06-01：首次 B48 推理卡在 PaddleSeg `SegBuilder` 导入兼容问题，已修复脚本，待服务器重跑确认。
-- [ ] 在服务器上用预训练模型跑当前数据。
+- [ ] 刷新服务器数据并复跑小批量推理。
+  - 本地数据目录：`/home/lan/work/鸿海鑫科技/丹江口/data`
+  - 服务器数据目录：`/home/hhx/lan/hrsegnet-crack/data`
   - 先跑 HrSegNet-B48。
   - 再跑 HrSegNet-B32 做对比。
 - [ ] 将服务器输出同步回本地并检查可视化效果。
