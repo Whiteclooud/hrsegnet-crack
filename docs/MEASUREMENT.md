@@ -51,7 +51,9 @@ python scripts/measure_crack_length.py \
   --output-csv outputs/measurements/b48_thr04_lengths.csv \
   --threshold 0.4 \
   --gsd-mm-per-px 1.075 \
-  --skeleton-dir outputs/measurements/b48_thr04_skeletons
+  --skeleton-dir outputs/measurements/b48_thr04_skeletons \
+  --base-image-dir outputs/rerun_16imgs_b48_tile400_overlap96_thr04/overlays \
+  --annotated-dir outputs/measurements/b48_thr04_length_overlays
 ```
 
 Optional small-component filtering:
@@ -63,8 +65,21 @@ python scripts/measure_crack_length.py \
   --threshold 0.4 \
   --gsd-mm-per-px 1.075 \
   --min-area-px 50 \
-  --skeleton-dir outputs/measurements/b48_thr04_skeletons_min50
+  --skeleton-dir outputs/measurements/b48_thr04_skeletons_min50 \
+  --base-image-dir outputs/rerun_16imgs_b48_tile400_overlap96_thr04/overlays \
+  --annotated-dir outputs/measurements/b48_thr04_length_overlays_min50 \
+  --min-label-length-mm 50
 ```
+
+Length-annotated overlays contain:
+
+- cyan skeleton centerline
+- total crack length in the upper-left corner
+- component bounding boxes
+- labels for the longest connected skeleton components
+
+Use `--max-labels` to limit label density and `--min-label-length-mm` to hide
+short noisy fragments.
 
 ## Broken And Curved Cracks
 

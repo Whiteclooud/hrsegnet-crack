@@ -11,6 +11,7 @@ from typing import Iterable, List, Tuple
 
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+STEM_SUFFIXES = ("_prob", "_mask", "_overlay", "_preview", "_skeleton")
 
 
 def find_images(path: Path) -> List[Path]:
@@ -21,6 +22,14 @@ def find_images(path: Path) -> List[Path]:
         for file in path.rglob("*")
         if file.is_file() and file.suffix.lower() in IMAGE_EXTS
     )
+
+
+def base_stem(path: Path) -> str:
+    stem = path.stem
+    for suffix in STEM_SUFFIXES:
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
 
 
 def zhang_suen_thinning(mask: "np.ndarray") -> "np.ndarray":
@@ -127,16 +136,161 @@ def skeleton_length_px(skeleton: "np.ndarray") -> float:
     return length
 
 
-def skeleton_component_lengths(skeleton: "np.ndarray") -> Tuple[int, List[float]]:
+def skeleton_component_details(skeleton: "np.ndarray") -> List[dict]:
     import cv2
     import numpy as np
 
-    labels_count, labels = cv2.connectedComponents(skeleton.astype(np.uint8), connectivity=8)
-    lengths: List[float] = []
+    labels_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        skeleton.astype(np.uint8), connectivity=8
+    )
+    components: List[dict] = []
     for label in range(1, labels_count):
         component = labels == label
-        lengths.append(skeleton_length_px(component))
-    return labels_count - 1, lengths
+        x = int(stats[label, cv2.CC_STAT_LEFT])
+        y = int(stats[label, cv2.CC_STAT_TOP])
+        w = int(stats[label, cv2.CC_STAT_WIDTH])
+        h = int(stats[label, cv2.CC_STAT_HEIGHT])
+        area = int(stats[label, cv2.CC_STAT_AREA])
+        cx, cy = centroids[label]
+        components.append(
+            {
+                "label": label,
+                "length_px": skeleton_length_px(component),
+                "skeleton_area_px": area,
+                "bbox": (x, y, w, h),
+                "centroid": (float(cx), float(cy)),
+            }
+        )
+    return components
+
+
+def find_base_image(base_image_dir: Path | None, source_path: Path) -> Path | None:
+    if base_image_dir is None:
+        return None
+
+    stem = base_stem(source_path)
+    candidate_names = []
+    for suffix in ("_overlay", "", "_preview", "_mask", "_prob"):
+        for ext in (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"):
+            candidate_names.append(f"{stem}{suffix}{ext}")
+
+    for name in candidate_names:
+        candidate = base_image_dir / name
+        if candidate.exists():
+            return candidate
+
+    matches = sorted(
+        file
+        for file in base_image_dir.glob(f"{stem}*")
+        if file.is_file() and file.suffix.lower() in IMAGE_EXTS
+    )
+    return matches[0] if matches else None
+
+
+def format_length(length_mm: float) -> str:
+    if length_mm >= 1000.0:
+        return f"{length_mm / 1000.0:.2f} m"
+    if length_mm >= 10.0:
+        return f"{length_mm / 10.0:.1f} cm"
+    return f"{length_mm:.1f} mm"
+
+
+def draw_text(
+    image: "np.ndarray",
+    text: str,
+    x: int,
+    y: int,
+    scale: float = 0.9,
+    color: Tuple[int, int, int] = (0, 255, 255),
+) -> None:
+    import cv2
+
+    cv2.putText(
+        image,
+        text,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        (0, 0, 0),
+        4,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        image,
+        text,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        color,
+        2,
+        cv2.LINE_AA,
+    )
+
+
+def write_annotated_overlay(
+    source_path: Path,
+    skeleton: "np.ndarray",
+    components: List[dict],
+    total_length_mm: float,
+    gsd_mm_per_px: float,
+    base_image_dir: Path | None,
+    annotated_dir: Path,
+    max_labels: int,
+    min_label_length_mm: float,
+) -> Path:
+    import cv2
+    import numpy as np
+
+    height, width = skeleton.shape
+    base_path = find_base_image(base_image_dir, source_path)
+    image = cv2.imread(str(base_path), cv2.IMREAD_COLOR) if base_path is not None else None
+
+    if image is None:
+        image = np.zeros((height, width, 3), dtype=np.uint8)
+    elif image.shape[:2] != (height, width):
+        image = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+
+    annotated = image.copy()
+    cyan = np.array([255, 255, 0], dtype=np.uint8)
+    annotated[skeleton] = (
+        0.35 * annotated[skeleton].astype(np.float32) + 0.65 * cyan.astype(np.float32)
+    ).astype(np.uint8)
+
+    draw_text(
+        annotated,
+        f"total: {format_length(total_length_mm)} | GSD: {gsd_mm_per_px:.3f} mm/px",
+        28,
+        48,
+        scale=1.1,
+    )
+
+    ranked = sorted(components, key=lambda item: item["length_px"], reverse=True)
+    shown = 0
+    for idx, component in enumerate(ranked, start=1):
+        length_mm = component["length_px"] * gsd_mm_per_px
+        if length_mm < min_label_length_mm:
+            continue
+        x, y, w, h = component["bbox"]
+        cx, cy = component["centroid"]
+        label_x = max(8, min(width - 280, int(cx) + 8))
+        label_y = max(78, min(height - 12, int(cy) - 8))
+        cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 200, 255), 2)
+        cv2.circle(annotated, (int(cx), int(cy)), 6, (0, 255, 255), -1)
+        draw_text(
+            annotated,
+            f"#{idx} {format_length(length_mm)}",
+            label_x,
+            label_y,
+            scale=0.8,
+        )
+        shown += 1
+        if shown >= max_labels:
+            break
+
+    annotated_dir.mkdir(parents=True, exist_ok=True)
+    out_path = annotated_dir / f"{base_stem(source_path)}_length_overlay.jpg"
+    cv2.imwrite(str(out_path), annotated)
+    return out_path
 
 
 def load_mask(path: Path, threshold: float) -> "np.ndarray":
@@ -162,19 +316,40 @@ def measure_one(
     gsd_mm_per_px: float,
     min_area_px: int,
     skeleton_dir: Path | None,
+    base_image_dir: Path | None,
+    annotated_dir: Path | None,
+    max_labels: int,
+    min_label_length_mm: float,
 ) -> dict:
     mask = load_mask(path, threshold)
     filtered, removed_components = filter_small_components(mask, min_area_px)
     skeleton = zhang_suen_thinning(filtered)
     total_length_px = skeleton_length_px(skeleton)
-    component_count, component_lengths = skeleton_component_lengths(skeleton)
+    components = skeleton_component_details(skeleton)
 
     if skeleton_dir is not None:
         write_skeleton(skeleton_dir / f"{path.stem}_skeleton.png", skeleton)
 
+    annotated_path = ""
+    if annotated_dir is not None:
+        annotated_path = str(
+            write_annotated_overlay(
+                source_path=path,
+                skeleton=skeleton,
+                components=components,
+                total_length_mm=total_length_px * gsd_mm_per_px,
+                gsd_mm_per_px=gsd_mm_per_px,
+                base_image_dir=base_image_dir,
+                annotated_dir=annotated_dir,
+                max_labels=max_labels,
+                min_label_length_mm=min_label_length_mm,
+            )
+        )
+
     height, width = mask.shape
     mask_area_px = int(filtered.sum())
     length_mm = total_length_px * gsd_mm_per_px
+    component_lengths = [component["length_px"] for component in components]
     return {
         "image": path.name,
         "width": width,
@@ -185,12 +360,13 @@ def measure_one(
         "removed_components": removed_components,
         "mask_area_px": mask_area_px,
         "mask_ratio": mask_area_px / float(width * height),
-        "skeleton_components": component_count,
+        "skeleton_components": len(components),
         "skeleton_length_px": total_length_px,
         "length_mm": length_mm,
         "length_cm": length_mm / 10.0,
         "length_m": length_mm / 1000.0,
         "max_component_length_px": max(component_lengths) if component_lengths else 0.0,
+        "annotated_overlay": annotated_path,
     }
 
 
@@ -222,6 +398,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional folder for skeleton preview images.",
     )
+    parser.add_argument(
+        "--base-image-dir",
+        type=Path,
+        default=None,
+        help="Optional original/overlay image folder used as annotation background.",
+    )
+    parser.add_argument(
+        "--annotated-dir",
+        type=Path,
+        default=None,
+        help="Optional folder for length-annotated overlay images.",
+    )
+    parser.add_argument(
+        "--max-labels",
+        default=25,
+        type=int,
+        help="Maximum number of component length labels per annotated image.",
+    )
+    parser.add_argument(
+        "--min-label-length-mm",
+        default=0.0,
+        type=float,
+        help="Only annotate components with at least this physical length.",
+    )
     return parser
 
 
@@ -238,6 +438,10 @@ def main() -> None:
             gsd_mm_per_px=args.gsd_mm_per_px,
             min_area_px=args.min_area_px,
             skeleton_dir=args.skeleton_dir,
+            base_image_dir=args.base_image_dir,
+            annotated_dir=args.annotated_dir,
+            max_labels=args.max_labels,
+            min_label_length_mm=args.min_label_length_mm,
         )
         for path in images
     ]
