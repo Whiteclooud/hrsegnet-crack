@@ -86,7 +86,7 @@ python scripts/infer_folder.py \
   --device gpu \
   --crop-size 400,400 \
   --overlap 96 \
-  --threshold 0.5
+  --threshold 0.4
 ```
 
 再用 B32 做对比：
@@ -101,7 +101,7 @@ python scripts/infer_folder.py \
   --device gpu \
   --crop-size 400,400 \
   --overlap 96 \
-  --threshold 0.5
+  --threshold 0.4
 ```
 
 输出目录包含：

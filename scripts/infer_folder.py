@@ -315,7 +315,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="gpu", choices=["gpu", "cpu"], help="Paddle device.")
     parser.add_argument("--crop-size", default="400,400", type=parse_pair)
     parser.add_argument("--overlap", default=96, type=int)
-    parser.add_argument("--threshold", default=0.5, type=float)
+    parser.add_argument("--threshold", default=0.4, type=float)
     parser.add_argument("--crack-class", default=1, type=int)
     parser.add_argument("--alpha", default=0.55, type=float)
     parser.add_argument("--mean", type=parse_triplet, default=None)
