@@ -45,8 +45,12 @@ def base_stem(path: Path) -> str:
     return stem
 
 
-def index_images(image_dir: Path) -> dict[str, Path]:
-    return {base_stem(path): path for path in find_images(image_dir)}
+def index_images(image_dirs: Iterable[Path]) -> dict[str, Path]:
+    images: dict[str, Path] = {}
+    for image_dir in image_dirs:
+        for path in find_images(image_dir):
+            images.setdefault(base_stem(path), path)
+    return images
 
 
 def make_overlay(image_bgr: "np.ndarray", mask: "np.ndarray", alpha: float) -> "np.ndarray":
@@ -185,6 +189,7 @@ def write_threshold_outputs(
 def iter_threshold_outputs(
     prob_paths: Iterable[Path],
     image_index: dict[str, Path],
+    image_dirs: Iterable[Path],
     output_root: Path,
     thresholds: List[float],
     baseline_threshold: float,
@@ -194,7 +199,11 @@ def iter_threshold_outputs(
         stem = base_stem(prob_path)
         image_path = image_index.get(stem)
         if image_path is None:
-            raise ValueError(f"no matching base image for probability map: {prob_path}")
+            searched = ", ".join(str(path) for path in image_dirs)
+            raise ValueError(
+                "no matching base image for probability map: "
+                f"{prob_path}\nexpected stem: {stem}\nsearched image dirs: {searched}"
+            )
         for threshold in thresholds:
             yield write_threshold_outputs(
                 prob_path=prob_path,
@@ -209,7 +218,16 @@ def iter_threshold_outputs(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prob-dir", required=True, type=Path)
-    parser.add_argument("--image-dir", required=True, type=Path)
+    parser.add_argument(
+        "--image-dir",
+        required=True,
+        type=Path,
+        nargs="+",
+        help=(
+            "One or more image folders used as visualization backgrounds. "
+            "Original images should be listed first."
+        ),
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
         "--thresholds",
@@ -233,11 +251,17 @@ def main() -> None:
     if not prob_paths:
         raise SystemExit(f"no probability maps found under: {args.prob_dir}")
 
-    image_index = index_images(args.image_dir)
+    image_dirs = list(args.image_dir)
+    sibling_overlays = args.prob_dir.parent / "overlays"
+    if sibling_overlays.exists() and sibling_overlays not in image_dirs:
+        image_dirs.append(sibling_overlays)
+
+    image_index = index_images(image_dirs)
     rows = list(
         iter_threshold_outputs(
             prob_paths=prob_paths,
             image_index=image_index,
+            image_dirs=image_dirs,
             output_root=args.output,
             thresholds=args.thresholds,
             baseline_threshold=args.baseline_threshold,
