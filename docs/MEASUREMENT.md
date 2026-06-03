@@ -16,6 +16,25 @@ It skeletonizes the binary crack mask and sums 8-neighbor skeleton edges:
 This is different from endpoint distance. Curved cracks are measured along the
 centerline curve.
 
+Crack width is estimated in two ways:
+
+1. Area/length average width:
+
+```text
+mean_width_px = mask_area_px / skeleton_length_px
+mean_width_mm = mean_width_px * GSD
+```
+
+2. Skeleton distance-transform width:
+
+```text
+local_width_px = 2 * distance_to_mask_boundary_at_skeleton_point
+```
+
+The CSV reports mean, median, 95th percentile, and max values for the
+distance-transform width. Width is less stable than length because it depends
+strongly on segmentation boundary quality and threshold.
+
 ## Fixed GSD
 
 For the current DJI M3TD ZoomCamera images:
@@ -40,6 +59,14 @@ GSD = H * 43.27 / (f35 * image_diagonal)
 This is only a first-pass approximation. It assumes the photographed surface is
 approximately planar, near perpendicular to the camera optical axis, and that
 `RelativeAltitude` is close to the camera-to-surface distance.
+
+At this GSD, a `4000x3000` image approximately covers:
+
+```text
+width  = 4000 * 1.075 mm = 4.300 m
+height = 3000 * 1.075 mm = 3.225 m
+area   = 13.868 m^2
+```
 
 ## Usage
 
@@ -74,12 +101,17 @@ python scripts/measure_crack_length.py \
 Length-annotated overlays contain:
 
 - cyan skeleton centerline
-- total crack length in the upper-left corner
+- total crack length and mean crack width in the upper-left corner
 - component bounding boxes
-- labels for the longest connected skeleton components
+- labels for the longest connected skeleton components, including component
+  length and median width
 
 Use `--max-labels` to limit label density and `--min-label-length-mm` to hide
-short noisy fragments.
+short noisy fragments. Component labels follow this style:
+
+```text
+#1 L=35.2cm W~2.8mm
+```
 
 ## Broken And Curved Cracks
 

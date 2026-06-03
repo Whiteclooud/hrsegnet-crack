@@ -136,16 +136,65 @@ def skeleton_length_px(skeleton: "np.ndarray") -> float:
     return length
 
 
-def skeleton_component_details(skeleton: "np.ndarray") -> List[dict]:
+def crack_width_metrics(
+    mask: "np.ndarray",
+    skeleton: "np.ndarray",
+    skeleton_length: float,
+    gsd_mm_per_px: float,
+) -> dict:
     import cv2
     import numpy as np
 
+    mask_area_px = int(mask.sum())
+    mean_width_px_area = mask_area_px / skeleton_length if skeleton_length > 0 else 0.0
+
+    if skeleton.any():
+        distance = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
+        local_widths_px = distance[skeleton] * 2.0
+        mean_width_px_dt = float(local_widths_px.mean())
+        median_width_px_dt = float(np.median(local_widths_px))
+        p95_width_px_dt = float(np.percentile(local_widths_px, 95))
+        max_width_px_dt = float(local_widths_px.max())
+    else:
+        mean_width_px_dt = 0.0
+        median_width_px_dt = 0.0
+        p95_width_px_dt = 0.0
+        max_width_px_dt = 0.0
+
+    return {
+        "mean_width_px_area": mean_width_px_area,
+        "mean_width_mm_area": mean_width_px_area * gsd_mm_per_px,
+        "mean_width_px_dt": mean_width_px_dt,
+        "mean_width_mm_dt": mean_width_px_dt * gsd_mm_per_px,
+        "median_width_px_dt": median_width_px_dt,
+        "median_width_mm_dt": median_width_px_dt * gsd_mm_per_px,
+        "p95_width_px_dt": p95_width_px_dt,
+        "p95_width_mm_dt": p95_width_px_dt * gsd_mm_per_px,
+        "max_width_px_dt": max_width_px_dt,
+        "max_width_mm_dt": max_width_px_dt * gsd_mm_per_px,
+    }
+
+
+def skeleton_component_details(skeleton: "np.ndarray", mask: "np.ndarray") -> List[dict]:
+    import cv2
+    import numpy as np
+
+    distance = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
     labels_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
         skeleton.astype(np.uint8), connectivity=8
     )
     components: List[dict] = []
     for label in range(1, labels_count):
         component = labels == label
+        local_widths_px = distance[component] * 2.0
+        if local_widths_px.size:
+            mean_width_px = float(local_widths_px.mean())
+            median_width_px = float(np.median(local_widths_px))
+            max_width_px = float(local_widths_px.max())
+        else:
+            mean_width_px = 0.0
+            median_width_px = 0.0
+            max_width_px = 0.0
         x = int(stats[label, cv2.CC_STAT_LEFT])
         y = int(stats[label, cv2.CC_STAT_TOP])
         w = int(stats[label, cv2.CC_STAT_WIDTH])
@@ -157,6 +206,9 @@ def skeleton_component_details(skeleton: "np.ndarray") -> List[dict]:
                 "label": label,
                 "length_px": skeleton_length_px(component),
                 "skeleton_area_px": area,
+                "mean_width_px": mean_width_px,
+                "median_width_px": median_width_px,
+                "max_width_px": max_width_px,
                 "bbox": (x, y, w, h),
                 "centroid": (float(cx), float(cy)),
             }
@@ -232,6 +284,7 @@ def write_annotated_overlay(
     skeleton: "np.ndarray",
     components: List[dict],
     total_length_mm: float,
+    mean_width_mm: float,
     gsd_mm_per_px: float,
     base_image_dir: Path | None,
     annotated_dir: Path,
@@ -258,7 +311,11 @@ def write_annotated_overlay(
 
     draw_text(
         annotated,
-        f"total: {format_length(total_length_mm)} | GSD: {gsd_mm_per_px:.3f} mm/px",
+        (
+            f"total: {format_length(total_length_mm)} | "
+            f"mean width: {mean_width_mm:.1f} mm | "
+            f"GSD: {gsd_mm_per_px:.3f} mm/px"
+        ),
         28,
         48,
         scale=1.1,
@@ -278,7 +335,10 @@ def write_annotated_overlay(
         cv2.circle(annotated, (int(cx), int(cy)), 6, (0, 255, 255), -1)
         draw_text(
             annotated,
-            f"#{idx} {format_length(length_mm)}",
+            (
+                f"#{idx} L={format_length(length_mm)} "
+                f"W~{component['median_width_px'] * gsd_mm_per_px:.1f}mm"
+            ),
             label_x,
             label_y,
             scale=0.8,
@@ -325,7 +385,13 @@ def measure_one(
     filtered, removed_components = filter_small_components(mask, min_area_px)
     skeleton = zhang_suen_thinning(filtered)
     total_length_px = skeleton_length_px(skeleton)
-    components = skeleton_component_details(skeleton)
+    components = skeleton_component_details(skeleton, filtered)
+    width_metrics = crack_width_metrics(
+        mask=filtered,
+        skeleton=skeleton,
+        skeleton_length=total_length_px,
+        gsd_mm_per_px=gsd_mm_per_px,
+    )
 
     if skeleton_dir is not None:
         write_skeleton(skeleton_dir / f"{path.stem}_skeleton.png", skeleton)
@@ -338,6 +404,7 @@ def measure_one(
                 skeleton=skeleton,
                 components=components,
                 total_length_mm=total_length_px * gsd_mm_per_px,
+                mean_width_mm=width_metrics["mean_width_mm_area"],
                 gsd_mm_per_px=gsd_mm_per_px,
                 base_image_dir=base_image_dir,
                 annotated_dir=annotated_dir,
@@ -350,10 +417,15 @@ def measure_one(
     mask_area_px = int(filtered.sum())
     length_mm = total_length_px * gsd_mm_per_px
     component_lengths = [component["length_px"] for component in components]
+    image_width_m = width * gsd_mm_per_px / 1000.0
+    image_height_m = height * gsd_mm_per_px / 1000.0
     return {
         "image": path.name,
         "width": width,
         "height": height,
+        "image_width_m": image_width_m,
+        "image_height_m": image_height_m,
+        "image_area_m2": image_width_m * image_height_m,
         "threshold": threshold,
         "gsd_mm_per_px": gsd_mm_per_px,
         "min_area_px": min_area_px,
@@ -366,6 +438,7 @@ def measure_one(
         "length_cm": length_mm / 10.0,
         "length_m": length_mm / 1000.0,
         "max_component_length_px": max(component_lengths) if component_lengths else 0.0,
+        **width_metrics,
         "annotated_overlay": annotated_path,
     }
 
